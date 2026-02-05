@@ -27,8 +27,9 @@
 <div class="row g-3 mt-1">
   <div class="col-12 col-lg-6">
     <div class="card p-3">
-      <h5 class="m-0">{{ charts.bar.title }}</h5>
-      {% if charts.bar.labels and charts.bar.values %}
+      <h5 class="m-0">{{ charts["bar"]["title"] }}</h5>
+
+      {% if charts["bar"]["labels"] and charts["bar"]["values"] %}
         <div class="mt-3">
           <canvas id="barChart" height="140"></canvas>
         </div>
@@ -40,8 +41,9 @@
 
   <div class="col-12 col-lg-6">
     <div class="card p-3">
-      <h5 class="m-0">{{ charts.line.title }}</h5>
-      {% if charts.line.labels and charts.line.values %}
+      <h5 class="m-0">{{ charts["line"]["title"] }}</h5>
+
+      {% if charts["line"]["labels"] and charts["line"]["values"] %}
         <div class="mt-3">
           <canvas id="lineChart" height="140"></canvas>
         </div>
@@ -99,13 +101,13 @@
 <!-- Chart.js -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
-  const barLabels = {{ charts.bar.labels|tojson }};
-  const barValues = {{ charts.bar.values|tojson }};
+  const barLabels  = {{ charts["bar"]["labels"]  | tojson }};
+  const barValues  = {{ charts["bar"]["values"]  | tojson }};
+  const lineLabels = {{ charts["line"]["labels"] | tojson }};
+  const lineValues = {{ charts["line"]["values"] | tojson }};
 
-  const lineLabels = {{ charts.line.labels|tojson }};
-  const lineValues = {{ charts.line.values|tojson }};
-
-  if (barLabels.length && document.getElementById("barChart")) {
+  // Bar chart: only if canvas exists + data exists
+  if (document.getElementById("barChart") && barLabels.length && barValues.length) {
     new Chart(document.getElementById("barChart"), {
       type: "bar",
       data: {
@@ -122,7 +124,8 @@
     });
   }
 
-  if (lineLabels.length && document.getElementById("lineChart")) {
+  // Line chart: only if canvas exists + data exists
+  if (document.getElementById("lineChart") && lineLabels.length && lineValues.length) {
     new Chart(document.getElementById("lineChart"), {
       type: "line",
       data: {
@@ -130,7 +133,7 @@
         datasets: [{
           label: "Sum",
           data: lineValues,
-          tension: 0.25
+          tension: 0.3
         }]
       },
       options: {
