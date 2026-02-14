@@ -2,8 +2,14 @@ name: Build and deploy Python app to Azure Web App - dashbaord-project
 
 on:
   push:
-    branches: [ "main" ]
+    branches:
+      - main
   workflow_dispatch:
+
+env:
+  APP_NAME: dashbaord-project
+  PYTHON_VERSION: "3.11"
+  STARTUP_PACKAGE: release.zip
 
 jobs:
   build:
@@ -12,56 +18,72 @@ jobs:
       contents: read
 
     steps:
-      - name: Checkout
+      - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ env.PYTHON_VERSION }}
 
-      # ✅ Detect requirements.txt anywhere + install deps (pandas, openpyxl, ...)
-      - name: Install dependencies
+      # ✅ Find requirements file (handles mistakes like "requirements" without .txt)
+      - name: Locate requirements file
+        shell: bash
+        run: |
+          set -e
+          echo "Listing repo root:"
+          ls -la
+
+          if [ -f "requirements.txt" ]; then
+            echo "REQ=requirements.txt" >> $GITHUB_ENV
+            echo "✅ Found requirements.txt in root"
+          elif [ -f "requirements" ]; then
+            mv requirements requirements.txt
+            echo "REQ=requirements.txt" >> $GITHUB_ENV
+            echo "✅ Renamed requirements -> requirements.txt"
+          else
+            # try find anywhere
+            FOUND=$(find . -maxdepth 3 -name "requirements.txt" -print -quit || true)
+            if [ -n "$FOUND" ]; then
+              echo "REQ=$FOUND" >> $GITHUB_ENV
+              echo "✅ Found requirements at: $FOUND"
+            else
+              echo "❌ requirements.txt not found in repo"
+              echo "Tip: put requirements.txt in the repo root (same level as app.py)"
+              exit 1
+            fi
+          fi
+
+      - name: Create venv and install dependencies (build validation)
+        shell: bash
         run: |
           set -e
           python -m venv antenv
           source antenv/bin/activate
           python -m pip install --upgrade pip setuptools wheel
+          python -m pip install -r "${{ env.REQ }}"
+          python -c "import flask; import pandas; print('✅ Imports OK')"
 
-          REQ=$(find . -maxdepth 5 -name "requirements.txt" -print -quit)
-          if [ -z "$REQ" ]; then
-            echo "❌ requirements.txt not found in repo"
-            echo "Files:"; ls -la
-            exit 1
-          fi
-
-          echo "✅ Found requirements at: $REQ"
-          python -m pip install -r "$REQ"
-          python -c "import pandas; print('✅ pandas OK', pandas.__version__)"
-
-      # ✅ Zip your app (exclude venv + git)
-      - name: Create deployment package
+      - name: Create deployment zip (exclude venv & git)
+        shell: bash
         run: |
-          sudo apt-get update
-          sudo apt-get install -y zip
-          zip -r release.zip . \
+          set -e
+          zip -r "${{ env.STARTUP_PACKAGE }}" . \
             -x "antenv/*" \
             -x ".git/*" \
             -x ".github/*" \
-            -x "**/__pycache__/*"
+            -x "__pycache__/*" \
+            -x "*.pyc"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: python-app
-          path: release.zip
+          path: ${{ env.STARTUP_PACKAGE }}
 
   deploy:
     runs-on: ubuntu-latest
     needs: build
-    permissions:
-      id-token: write
-      contents: read
 
     steps:
       - name: Download artifact
@@ -69,17 +91,9 @@ jobs:
         with:
           name: python-app
 
-      - name: Login to Azure
-        uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_1E1390C6BA00471695540F9FEDFA67CF }}
-          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_188C65339E894B6FA50A55A4CBDC5A4F }}
-          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_A47052E04B9B4AC392F61624DA6B0969 }}
-
-      - name: Deploy to Azure Web App
+      - name: Deploy to Azure Web App (Publish Profile)
         uses: azure/webapps-deploy@v3
         with:
-          app-name: "dashbaord-project"
-          slot-name: "Production"
-          package: release.zip
-
+          app-name: ${{ env.APP_NAME }}
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+          package: ${{ env.STARTUP_PACKAGE }}
