@@ -1,0 +1,85 @@
+name: Build and deploy Python app to Azure Web App - dashbaord-project
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # ✅ Detect requirements.txt anywhere + install deps (pandas, openpyxl, ...)
+      - name: Install dependencies
+        run: |
+          set -e
+          python -m venv antenv
+          source antenv/bin/activate
+          python -m pip install --upgrade pip setuptools wheel
+
+          REQ=$(find . -maxdepth 5 -name "requirements.txt" -print -quit)
+          if [ -z "$REQ" ]; then
+            echo "❌ requirements.txt not found in repo"
+            echo "Files:"; ls -la
+            exit 1
+          fi
+
+          echo "✅ Found requirements at: $REQ"
+          python -m pip install -r "$REQ"
+          python -c "import pandas; print('✅ pandas OK', pandas.__version__)"
+
+      # ✅ Zip your app (exclude venv + git)
+      - name: Create deployment package
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y zip
+          zip -r release.zip . \
+            -x "antenv/*" \
+            -x ".git/*" \
+            -x ".github/*" \
+            -x "**/__pycache__/*"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-app
+          path: release.zip
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: python-app
+
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_1E1390C6BA00471695540F9FEDFA67CF }}
+          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_188C65339E894B6FA50A55A4CBDC5A4F }}
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_A47052E04B9B4AC392F61624DA6B0969 }}
+
+      - name: Deploy to Azure Web App
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: "dashbaord-project"
+          slot-name: "Production"
+          package: release.zip
+
