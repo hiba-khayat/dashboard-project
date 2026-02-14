@@ -1,99 +1,30 @@
-name: Build and deploy Python app to Azure Web App - dashbaord-project
+name: Deploy Flask to Azure Web App - dashbaord-project
 
 on:
   push:
-    branches:
-      - main
+    branches: ["main"]
   workflow_dispatch:
 
-env:
-  APP_NAME: dashbaord-project
-  PYTHON_VERSION: "3.11"
-  STARTUP_PACKAGE: release.zip
-
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      # ✅ Find requirements file (handles mistakes like "requirements" without .txt)
-      - name: Locate requirements file
-        shell: bash
-        run: |
-          set -e
-          echo "Listing repo root:"
-          ls -la
-
-          if [ -f "requirements.txt" ]; then
-            echo "REQ=requirements.txt" >> $GITHUB_ENV
-            echo "✅ Found requirements.txt in root"
-          elif [ -f "requirements" ]; then
-            mv requirements requirements.txt
-            echo "REQ=requirements.txt" >> $GITHUB_ENV
-            echo "✅ Renamed requirements -> requirements.txt"
-          else
-            # try find anywhere
-            FOUND=$(find . -maxdepth 3 -name "requirements.txt" -print -quit || true)
-            if [ -n "$FOUND" ]; then
-              echo "REQ=$FOUND" >> $GITHUB_ENV
-              echo "✅ Found requirements at: $FOUND"
-            else
-              echo "❌ requirements.txt not found in repo"
-              echo "Tip: put requirements.txt in the repo root (same level as app.py)"
-              exit 1
-            fi
-          fi
-
-      - name: Create venv and install dependencies (build validation)
-        shell: bash
-        run: |
-          set -e
-          python -m venv antenv
-          source antenv/bin/activate
-          python -m pip install --upgrade pip setuptools wheel
-          python -m pip install -r "${{ env.REQ }}"
-          python -c "import flask; import pandas; print('✅ Imports OK')"
-
-      - name: Create deployment zip (exclude venv & git)
-        shell: bash
-        run: |
-          set -e
-          zip -r "${{ env.STARTUP_PACKAGE }}" . \
-            -x "antenv/*" \
-            -x ".git/*" \
-            -x ".github/*" \
-            -x "__pycache__/*" \
-            -x "*.pyc"
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: python-app
-          path: ${{ env.STARTUP_PACKAGE }}
-
   deploy:
     runs-on: ubuntu-latest
-    needs: build
 
     steps:
-      - name: Download artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: python-app
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify required files (root)
+        run: |
+          set -e
+          echo "📦 Repo files:"
+          ls -la
+          test -f app.py || (echo "❌ app.py not found in repo root" && exit 1)
+          test -f requirements.txt || (echo "❌ requirements.txt not found in repo root" && exit 1)
+          echo "✅ app.py and requirements.txt exist"
 
       - name: Deploy to Azure Web App (Publish Profile)
         uses: azure/webapps-deploy@v3
         with:
-          app-name: ${{ env.APP_NAME }}
+          app-name: dashbaord-project
           publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
-          package: ${{ env.STARTUP_PACKAGE }}
+          package: .
